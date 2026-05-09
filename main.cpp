@@ -10,6 +10,8 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QDialog>
+#include <QTabWidget>
+#include <QFormLayout>
 #include <QRadioButton>
 #include <QComboBox>
 #include <QFileDialog>
@@ -36,11 +38,26 @@
 #include <QStandardPaths>
 #include <QFile>
 #include <QTimer>
+#include <QCheckBox>
 #include <QScrollBar>
+#include <QGroupBox>
+#include <QIntValidator>
+#include <QDoubleValidator>
 #include <memory>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
+
+struct AppSettings {
+    QString defaultFormat = "MP4";
+    QString defaultQuality = "1080p";
+    QString defaultAudioFormat = "MP3";
+    QString defaultAudioQuality = "128 kbps";
+    QString downloadPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    int maxConcurrent = 3;
+    double speedLimit = 0.0;
+    bool createPlaylistFolder = true;
+};
 
 struct VideoMetadata {
     QString title;
@@ -509,7 +526,7 @@ struct PlaylistData {
 class AddDownloadDialog : public QDialog {
     Q_OBJECT
 public:
-    AddDownloadDialog(QWidget* parent = nullptr) : QDialog(parent) {
+    AddDownloadDialog(AppSettings settings, QWidget* parent = nullptr) : QDialog(parent), m_settings(settings) {
         setWindowTitle("Novo Download - Yout8");
         setFixedWidth(450);
         QVBoxLayout* layout = new QVBoxLayout(this);
@@ -575,11 +592,13 @@ private slots:
         if (isVideo) {
             formatCombo->addItems({"MP4", "MKV", "WEBM", "AVI", "MOV", "FLV", "WMV", "M4V"});
             qualityCombo->addItems({"2160p (4K)", "1440p (2K)", "1080p", "720p", "480p", "360p", "240p", "144p"});
-            qualityCombo->setCurrentIndex(3); // Padrão 720p
+            if (formatCombo->findText(m_settings.defaultFormat) != -1) formatCombo->setCurrentText(m_settings.defaultFormat);
+            if (qualityCombo->findText(m_settings.defaultQuality) != -1) qualityCombo->setCurrentText(m_settings.defaultQuality);
         } else {
             formatCombo->addItems({"MP3", "M4A", "WAV", "FLAC", "OGG", "OPUS", "WMA", "AAC"});
             qualityCombo->addItems({"320 kbps", "256 kbps", "192 kbps", "160 kbps", "128 kbps", "96 kbps", "64 kbps", "32 kbps"});
-            qualityCombo->setCurrentIndex(5); // Padrão 96 kbps
+            if (formatCombo->findText(m_settings.defaultAudioFormat) != -1) formatCombo->setCurrentText(m_settings.defaultAudioFormat);
+            if (qualityCombo->findText(m_settings.defaultAudioQuality) != -1) qualityCombo->setCurrentText(m_settings.defaultAudioQuality);
         }
     }
 
@@ -587,6 +606,7 @@ private:
     QLineEdit *urlInput, *pathInput;
     QRadioButton *videoRadio, *audioRadio;
     QComboBox *formatCombo, *qualityCombo;
+    AppSettings m_settings;
 };
 
 // --- Janela Principal ---
@@ -646,23 +666,44 @@ public:
         leftLayout->addWidget(detailDesc);
         leftLayout->addStretch();
 
-        // --- Lateral Direita (Lista de Downloads) ---
+        // --- Painel Direito ---
+        QWidget* rightPanel = new QWidget();
+        QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
+        rightLayout->setContentsMargins(0, 0, 0, 0);
+        rightLayout->setSpacing(0);
+
+        // Barra Superior Direita (Botão Config)
+        QWidget* topBar = new QWidget();
+        topBar->setFixedHeight(50);
+        QHBoxLayout* topBarLayout = new QHBoxLayout(topBar);
+        topBarLayout->addStretch();
+        
+        QPushButton* settingsBtn = new QPushButton();
+        settingsBtn->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+        settingsBtn->setFixedSize(35, 35);
+        settingsBtn->setToolTip("Configurações");
+        settingsBtn->setStyleSheet("background: #2d2d2d; border: 1px solid #444; border-radius: 4px;");
+        topBarLayout->addWidget(settingsBtn);
+
         downloadList = new QListWidget();
         downloadList->setSpacing(8);
         downloadList->setSelectionMode(QAbstractItemView::SingleSelection);
         downloadList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         downloadList->setStyleSheet("QListWidget { background-color: #1e1e1e; border: none; padding: 10px; } QListWidget::item { border: none; }");
-        
         downloadList->verticalScrollBar()->setSingleStep(20); // Define a velocidade (valor menor = mais lento)
 
+        rightLayout->addWidget(topBar);
+        rightLayout->addWidget(downloadList);
+
         mainLayout->addWidget(leftPanel);
-        mainLayout->addWidget(downloadList);
+        mainLayout->addWidget(rightPanel);
 
         setCentralWidget(central);
+        loadSettings();
 
-        // Conexões
         connect(addBtn, &QPushButton::clicked, this, &MainWindow::openAddDialog);
         connect(downloadList, &QListWidget::itemSelectionChanged, this, &MainWindow::onSelectionChanged);
+        connect(settingsBtn, &QPushButton::clicked, this, &MainWindow::openSettingsDialog);
     }
 
     void loadChannelAvatar(QString url) {
@@ -693,8 +734,106 @@ public:
     }
 
 private slots:
+    void openSettingsDialog() {
+        QDialog diag(this);
+        diag.setWindowTitle("Preferências - Yout8");
+        diag.setMinimumWidth(450);
+        QVBoxLayout* mainL = new QVBoxLayout(&diag);
+
+        QTabWidget* tabs = new QTabWidget();
+
+        // --- Aba Padrão ---
+        QWidget* tabPadrao = new QWidget();
+        QVBoxLayout* padraoL = new QVBoxLayout(tabPadrao);
+        QFormLayout* formPadrao = new QFormLayout();
+
+        QComboBox* defFormat = new QComboBox();
+        defFormat->addItems({"MP4", "MKV", "WEBM", "MP3", "M4A", "WAV", "FLAC"});
+        defFormat->setCurrentText(m_settings.defaultFormat);
+
+        QComboBox* defQual = new QComboBox();
+        defQual->addItems({"2160p (4K)", "1440p (2K)", "1080p", "720p", "480p", "360p", "320 kbps", "256 kbps", "128 kbps"});
+        defQual->setCurrentText(m_settings.defaultQuality);
+
+        QComboBox* defAudioFormat = new QComboBox();
+        defAudioFormat->addItems({"MP3", "M4A", "WAV", "FLAC", "OGG", "OPUS", "WMA", "AAC"});
+        defAudioFormat->setCurrentText(m_settings.defaultAudioFormat);
+
+        QComboBox* defAudioQual = new QComboBox();
+        defAudioQual->addItems({"320 kbps", "256 kbps", "192 kbps", "160 kbps", "128 kbps", "96 kbps", "64 kbps", "32 kbps"});
+        defAudioQual->setCurrentText(m_settings.defaultAudioQuality);
+
+        QLineEdit* pathEd = new QLineEdit(m_settings.downloadPath);
+        QPushButton* browseBtn = new QPushButton("...");
+        QHBoxLayout* pathL = new QHBoxLayout();
+        pathL->addWidget(pathEd);
+        pathL->addWidget(browseBtn);
+
+        formPadrao->addRow("Formato Padrão:", defFormat);
+        formPadrao->addRow("Qualidade Padrão:", defQual);
+        formPadrao->addRow("Formato Áudio Padrão:", defAudioFormat);
+        formPadrao->addRow("Qualidade Áudio Padrão:", defAudioQual);
+        formPadrao->addRow("Pasta de Downloads:", pathL);
+        padraoL->addLayout(formPadrao);
+        padraoL->addStretch();
+
+        // --- Aba Download ---
+        QWidget* tabDownload = new QWidget();
+        QVBoxLayout* downL = new QVBoxLayout(tabDownload);
+        
+        QLineEdit* maxDown = new QLineEdit(QString::number(m_settings.maxConcurrent));
+        maxDown->setValidator(new QIntValidator(1, 10, this));
+        
+        QLineEdit* speedLimit = new QLineEdit(QString::number(m_settings.speedLimit).replace(".", ","));
+        speedLimit->setValidator(new QDoubleValidator(0.0, 1000.0, 2, this));
+
+        QCheckBox* playlistFolder = new QCheckBox("Criar pasta automaticamente para playlists");
+        playlistFolder->setChecked(m_settings.createPlaylistFolder);
+
+        downL->addWidget(new QLabel("Limite de downloads simultâneos:"));
+        downL->addWidget(maxDown);
+        downL->addWidget(new QLabel("Limite de Mbps por download (0 para ilimitado):"));
+        downL->addWidget(speedLimit);
+        downL->addWidget(playlistFolder);
+        downL->addStretch();
+
+        tabs->addTab(tabPadrao, "Padrão");
+        tabs->addTab(tabDownload, "Download");
+        mainL->addWidget(tabs);
+
+        QHBoxLayout* buttons = new QHBoxLayout();
+        QPushButton* saveBtn = new QPushButton("Salvar");
+        saveBtn->setStyleSheet("background: #0078d7; color: white; padding: 6px;");
+        QPushButton* cancelBtn = new QPushButton("Cancelar");
+        buttons->addStretch();
+        buttons->addWidget(saveBtn);
+        buttons->addWidget(cancelBtn);
+        mainL->addLayout(buttons);
+
+        connect(browseBtn, &QPushButton::clicked, [&]() {
+            QString dir = QFileDialog::getExistingDirectory(&diag, "Selecionar Pasta", pathEd->text());
+            if (!dir.isEmpty()) pathEd->setText(dir);
+        });
+
+        connect(cancelBtn, &QPushButton::clicked, &diag, &QDialog::reject);
+        connect(saveBtn, &QPushButton::clicked, [&]() {
+            m_settings.defaultFormat = defFormat->currentText();
+            m_settings.defaultQuality = defQual->currentText();
+            m_settings.defaultAudioFormat = defAudioFormat->currentText();
+            m_settings.defaultAudioQuality = defAudioQual->currentText();
+            m_settings.downloadPath = pathEd->text();
+            m_settings.maxConcurrent = maxDown->text().toInt();
+            m_settings.speedLimit = speedLimit->text().replace(",", ".").toDouble();
+            m_settings.createPlaylistFolder = playlistFolder->isChecked();
+            saveSettings();
+            diag.accept();
+        });
+
+        diag.exec();
+    }
+
     void openAddDialog() {
-        AddDownloadDialog diag(this);
+        AddDownloadDialog diag(m_settings, this);
         if (diag.exec() == QDialog::Accepted) {
             addNewDownload(diag.getUrl(), diag.getPath(), diag.isVideo(), diag.getFormat(), diag.getQuality());
         }
@@ -885,10 +1024,46 @@ private slots:
         }
     }
 
+    void loadSettings() {
+        QString configPath = QCoreApplication::applicationDirPath() + "/config.json";
+        QFile file(configPath);
+        if (file.open(QIODevice::ReadOnly)) {
+            QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            QJsonObject obj = doc.object();
+            m_settings.defaultFormat = obj["defaultFormat"].toString("MP4");
+            m_settings.defaultQuality = obj["defaultQuality"].toString("1080p");
+            m_settings.defaultAudioFormat = obj["defaultAudioFormat"].toString("MP3");
+            m_settings.defaultAudioQuality = obj["defaultAudioQuality"].toString("128 kbps");
+            m_settings.downloadPath = obj["downloadPath"].toString(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+            m_settings.maxConcurrent = obj["maxConcurrent"].toInt(3);
+            m_settings.speedLimit = obj["speedLimit"].toDouble(0.0);
+            m_settings.createPlaylistFolder = obj["createPlaylistFolder"].toBool(true);
+            file.close();
+        }
+    }
+
+    void saveSettings() {
+        QString configPath = QCoreApplication::applicationDirPath() + "/config.json";
+        QFile file(configPath);
+        if (file.open(QIODevice::WriteOnly)) {
+            QJsonObject obj;
+            obj["defaultFormat"] = m_settings.defaultFormat;
+            obj["defaultQuality"] = m_settings.defaultQuality;
+            obj["defaultAudioFormat"] = m_settings.defaultAudioFormat;
+            obj["defaultAudioQuality"] = m_settings.defaultAudioQuality;
+            obj["downloadPath"] = m_settings.downloadPath;
+            obj["maxConcurrent"] = m_settings.maxConcurrent;
+            obj["speedLimit"] = m_settings.speedLimit;
+            obj["createPlaylistFolder"] = m_settings.createPlaylistFolder;
+            file.write(QJsonDocument(obj).toJson());
+            file.close();
+        }
+    }
+
 private:
     QListWidget* downloadList;
     QLabel *detailThumb, *detailTitle, *channelPic, *channelName, *detailDesc;
-
+    AppSettings m_settings;
     // Gerenciamento de Fila
     struct DownloadParams {
         QString path;
