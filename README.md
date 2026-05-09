@@ -1,1 +1,5 @@
-<img width="128" height="128" alt="Windows-Media-Player-icon" src="https://github.com/user-attachments/assets/fbd80c6d-b9c7-4c5f-bb3a-35fee4472901" /> **Yout8: youtube downloader**
+**Yout8: youtube downloader**
+Yout8 e um Aplicativo de Codigo aberto, gratuito e completamente livre de anuncios com foco em Download de Conteudo do Youtube.
+
+**Licensa**
+MIT License: completamente livre para fazer o que bem quiser com o codigo
